@@ -45,6 +45,7 @@ df = df[df["master_metadata_track_name"].notna()].copy()
 df = df.drop(columns=[
     "ip_addr", "offline_timestamp",
     "episode_name", "episode_show_name", "spotify_episode_uri",
+    "audiobook_title", "audiobook_uri", "audiobook_chapter_uri", "audiobook_chapter_title"
 ])
 
 # Friendlier column names
