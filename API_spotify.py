@@ -5,6 +5,18 @@ from pathlib import Path
 
 import requests
 
+class QuotaExceeded(Exception):
+    """Raised when Spotify says the quota is used up and the wait is too long."""
+    def __init__(self, retry_after):
+        super().__init__(f"Quota exhausted, retry after {retry_after:.0f}s")
+        self.retry_after = retry_after
+
+class TokenExpired(Exception):
+    pass
+
+class TrackNotFound(Exception):
+    pass
+
 BASE_DIR = Path(__file__).resolve().parent
 TOKEN_FILE = BASE_DIR / "AccessToken.json"
 ENV_FILE = BASE_DIR / ".env"
@@ -118,42 +130,68 @@ def is_valid_access_token(token: dict, refresh_before: int = 60) -> bool:
 """
 Perform a generic GET-request and return the result as a JSON
 """
-def get_json(url, headers, params=None, max_retries=5):
+def get_json(url, headers, params=None, max_retries=5,
+             base_delay=0.4, max_wait=300):
     for attempt in range(max_retries + 1):
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=10,
-        )
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == max_retries:
+                raise
+            time.sleep(2 ** attempt)          # 1, 2, 4, 8... seconds
+            continue
 
-        if response.status_code != 429:
-            response.raise_for_status()
+        # Success: pause briefly to stay under the rate limit
+        if response.ok:
+            time.sleep(base_delay)            # ~2.5 requests/second
             return response.json()
 
-        if attempt == max_retries:
-            response.raise_for_status()
+        # Expired or invalid token: let the caller refresh it
+        if response.status_code == 401:
+            raise TokenExpired("Access token expired or invalid")
 
-        retry_after = response.headers.get("Retry-After", "5")
-        try:
-            delay = max(0, float(retry_after))
-        except ValueError:
-            delay = 5
+        if response.status_code == 404:
+            raise TrackNotFound(url)
+        
+        # Rate limited
+        if response.status_code == 429:
+            try:
+                delay = max(0, float(response.headers.get("Retry-After", "5")))
+            except ValueError:
+                delay = 5
 
-        time.sleep(delay)
+            try:
+                reason = response.json().get("error", {}).get("reason")
+            except ValueError:
+                reason = None
 
-def API_request_tracks(track_ids: list[str]) -> dict:
-    if not track_ids:
-        raise ValueError("track_ids must not be empty")
-    if len(track_ids) > 50:
-        raise ValueError("A maximum of 50 track IDs can be requested at once")
+            # Long wait or quota exhausted: stop instead of sleeping for hours
+            if delay > max_wait or reason == "QUOTA_EXCEEDED":
+                raise QuotaExceeded(delay)
 
-    token = get_access_token()
+            if attempt == max_retries:
+                response.raise_for_status()
+            time.sleep(delay)
+            continue
 
-    return get_json(
-        url="https://api.spotify.com/v1/tracks",
-        headers={"Authorization": f"Bearer {token['access_token']}"},
-        params={"ids": ",".join(track_ids)},
-    )
+        # Temporary server errors: retry with backoff
+        if response.status_code >= 500 and attempt < max_retries:
+            time.sleep(2 ** attempt)
+            continue
+
+        # Anything else (403, 404, ...): fail immediately
+        response.raise_for_status()
+
+def API_request_tracks(track_id: str) -> dict:
+    if not track_id:
+        raise ValueError("track_id must not be empty")
+    
+    url = f"https://api.spotify.com/v1/tracks/{track_id}"
+    try:
+        token = get_access_token()
+        return get_json(url, {"Authorization": f"Bearer {token}"})
+    except TokenExpired:
+        token = get_access_token()   # retry once with a fresh token
+        return get_json(url, {"Authorization": f"Bearer {token}"})
 
 
