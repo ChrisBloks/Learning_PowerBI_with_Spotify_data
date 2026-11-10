@@ -13,6 +13,7 @@ Run:           python preprocess_spotify.py
 
 from pathlib import Path
 import pandas as pd
+import numpy as np
 
 RAW_DIR = Path("../my_spotify_data")
 OUT_DIR = Path("./cleaned_data")
@@ -54,6 +55,12 @@ df = df.rename(columns={
     "master_metadata_album_artist_name": "artist",
     "master_metadata_album_name": "album",
 })
+
+# Remove invalid values from 'offline' and 'incognito_mode'
+for col in ['offline', 'incognito_mode']:
+    df[col] = df[col].map(
+        lambda x: x if isinstance(x, (bool, np.bool_)) else False
+    ).astype(bool)
 
 # Remove accidental duplicates
 df = df.drop_duplicates(subset=["ts", "spotify_track_uri"])
