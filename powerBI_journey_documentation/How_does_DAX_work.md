@@ -44,12 +44,47 @@ Since the combination Employee + Month is unique in our Table, 'filtered_table' 
 Two important notes about measures. First, a measure is dependent on the Filter context it's given, different Filter contexts will produce different values.
 Second, this means that a measure is calculated ONLY when it is requested by a Visual it's been placed on, it cannot be shown in a Table. In order to test a measure we have to create a basic Visual such as the one defined above which provides a Filter context.
 
+### Creating new columns
+Suppose we don't like "Jan", "Feb", "Mar", etc. for our Months column and we'd like numbers from 1 to 12 for ordering purposes. We can define a new column by selecting our table and clicking "Add new Column", this lets us write a DAX expression in **Row context**, row context differs from Filter context in that the input to the DAX are all values in a row. Simply put, we create a new column by calculating a value from each row.
+
+We can define a new column MonthNum like so:
+```SQL
+MonthNum = 
+SWITCH(
+    [Month],
+    "Jan", 01,
+    "Feb", 02,
+    "Mar", 03,
+    "Apr", 04,
+    "May", 05,
+    "Jun", 06,
+    "Jul", 07,
+    "Aug", 08,
+    "Sep", 09,
+    "Oct", 10,
+    "Nov", 11,
+    "Dec", 12,
+    -1
+ )
+```
+Here, for each row, the value on the column "Month" is taken as input for the SWITCH statement.
+Let's make a line graph showing the earnings each month. We put MonthNum on the X-axis, and Earnings on the Y-axis.
+
+![Example line graph MonthNum](images/example_line_graph_1.png)
+
+This looks okay but we'd like to reintroduce the Month names, but keep the ordering. 
+There are two ways simple ways, (1) simply add Month too the X-axis as well:
+
+![Example line graph MonthNum Month](images/example_line_graph_2.png)
+
+(2) Add MonthNum to the table directly using Power Query. Then we can add month to the X-axis and sort Month by MonthNum[^4], which is left as an exercise to the reader.
+
 
 
 [^1]: Cell is not an official PowerBI term, but Claude likes it and I'm willing to bend the knee to my AI overlord on this topic.
 
-[^2]: The mathematically-inclined can imagine each cell to defined by the Cartesian product of Columns/Rows, where the value of the cell then is calculated by a measure taking the cell as input.
+[^2]: The mathematically-inclined can imagine each cell to defined by the Cartesian product of Columns/Rows, where the value of the cell then is calculated by a function taking the cell's (col_value, row_value) as input.
 
 [^3]: Here a matrix cell corresponds 1-to-1 to a Visual's "calculation" cell
 
-
+[^4]: We cannot sort Month on the MonthNum column we calculated with DAX, because the value in the MonthNum column is defined by the value in Month.
